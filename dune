@@ -1,4 +1,3 @@
-(executable
- (public_name new_lottery)
- (name main)
+(executables
+ (names main alias lowvalloc minvalloc)
  (libraries new_lottery))
