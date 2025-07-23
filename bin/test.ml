@@ -21,13 +21,14 @@ let run_method method_id input n_cycles =
       verify_distribution input output blocks_per_cycle
     done
   | 4 ->  (* SWRR with memory *)
+    let inputs = [input_cycle_1; input_cycle_2; input_cycle_3] in
     let state = ref (Swr.init_state input) in
-    for cycle = 1 to n_cycles do
-      Format.printf "@.Cycle #%d (SWRR with memory)@." cycle;
+    List.iteri (fun i input ->
+      Format.printf "@.Cycle #%d (SWRR with memory)@." (i + 1);
       let output, new_state = Swr.run_with_state input !state in
       state := new_state;
       verify_distribution input output blocks_per_cycle
-    done
+    ) inputs
   | _ -> failwith "Invalid method id"
 
 let () =
@@ -35,7 +36,7 @@ let () =
   Format.printf "1 - Alias method@.";
   Format.printf "2 - LowVAlloc@.";
   Format.printf "3 - MinVAlloc@.";
-  Format.printf "4 - Smooth Weighted Round Robin (SWRR with memory)@.";
+  Format.printf "4 - Smooth Weighted Round Robin (SWRR with memory - DATA ONLY FOR 3 CYCLES AVAILABLE). @.";
   Format.printf "> %!";
   try
     let method_id = read_int () in

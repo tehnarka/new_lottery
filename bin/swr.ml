@@ -7,7 +7,17 @@ let init_state (input : input) : state =
   List.iter (fun (d, _) -> Hashtbl.add tbl d 0) input;
   tbl
 
-let run_with_state (input : input) (credit_tbl : state) : output * state =
+let update_state (prev_tbl : state) (new_input : input) : state =
+  let new_tbl = Hashtbl.create (List.length new_input) in
+  List.iter (fun (d, _) ->
+    let prev_credit = Hashtbl.find_opt prev_tbl d |> Option.value ~default:0 in
+    Hashtbl.add new_tbl d prev_credit
+  ) new_input; 
+  new_tbl
+
+
+let run_with_state (input : input) (prev_credit_tbl : state) : output * state =
+  let credit_tbl = update_state prev_credit_tbl input in
   let total_stake = List.fold_left (fun acc (_, s) -> acc + s) 0 input in
   let arr = Array.make blocks_per_cycle "" in
 
