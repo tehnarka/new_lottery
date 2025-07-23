@@ -1,0 +1,10 @@
+_build/
+*.sw?
+*.exe
+*.o
+*.cm*
+*.annot
+*.merlin
+.dune/
+*.install
+
