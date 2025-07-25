@@ -29,6 +29,16 @@ let run_method method_id input n_cycles =
       state := new_state;
       verify_distribution input output blocks_per_cycle
     ) inputs
+  | 5 ->  (* SSSA after MinVAlloc *)
+    for cycle = 1 to n_cycles do
+      Format.printf "@.Cycle #%d (SSSA after MinVAlloc)@." cycle;
+      let raw = Minvalloc.run input in
+      let output = Shift.run raw in
+      verify_distribution input output blocks_per_cycle;
+      Array.iteri (fun i d ->
+        Format.printf "Block %04d: %s@." i d
+      ) output
+    done
   | _ -> failwith "Invalid method id"
 
 let () =
@@ -37,6 +47,7 @@ let () =
   Format.printf "2 - LowVAlloc@.";
   Format.printf "3 - MinVAlloc@.";
   Format.printf "4 - Smooth Weighted Round Robin (SWRR with memory - DATA ONLY FOR 3 CYCLES AVAILABLE). @.";
+  Format.printf "5 - SSSA after MinVAlloc@.";
   Format.printf "> %!";
   try
     let method_id = read_int () in

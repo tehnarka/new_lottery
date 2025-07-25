@@ -1,5 +1,5 @@
 (executable
  (name test)
  (public_name new_lottery.test)
- (modules test alias lowvalloc minvalloc swr)
+ (modules test alias lowvalloc minvalloc swr shift)
  (libraries new_lottery.common))

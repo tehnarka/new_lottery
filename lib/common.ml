@@ -3,7 +3,7 @@ type delegate = string
 type delegate_stake = delegate * int
 type input = delegate_stake list
 type output = delegate array
-
+type assignement = (delegate * int list) list
 let blocks_per_cycle = 10800
 
 let pp_delegate = Format.pp_print_string
