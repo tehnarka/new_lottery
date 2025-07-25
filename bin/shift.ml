@@ -1,6 +1,6 @@
 open Common
 
-(* Повертає кількість слотів для кожного бейкера *)
+(* Returns the number of slots for each baker *)
 let count_slots (output : output) : (delegate * int) list =
   let tbl = Hashtbl.create 128 in
   Array.iter (fun d ->
@@ -9,7 +9,7 @@ let count_slots (output : output) : (delegate * int) list =
   ) output;
   Hashtbl.to_seq tbl |> List.of_seq
 
-(* Головна функція Sorted Stride-Based Slot Allocation *)
+(* Main function Sorted Stride-Based Slot Allocation *)
 let run (output : output) : output =
   let r = Array.length output in
   let counts = count_slots output in
@@ -29,7 +29,7 @@ let run (output : output) : output =
     available := List.filter (fun x -> not (List.mem x positions)) !available
   ) sorted;
 
-  (* Побудова фінального масиву *)
+(* Building the final array *)
   let result = Array.make r "" in
   Hashtbl.iter (fun d slots ->
     List.iter (fun idx -> result.(idx) <- d) slots
