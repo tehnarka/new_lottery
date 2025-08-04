@@ -1,23 +1,41 @@
-
+(* Delegate identifier represented as a string *)
 type delegate = string
+
+(* Pair consisting of a delegate and their stake (integer) *)
 type delegate_stake = delegate * int
+
+(* Input list containing stakes of all delegates *)
 type input = delegate_stake list
+
+(* Output array representing the delegate assignments for each block *)
 type output = delegate array
+
+(* Assignment mapping from delegates to the list of their assigned block indices *)
 type assignement = (delegate * int list) list
+
+(* Constant representing the number of blocks within one cycle *)
 let blocks_per_cycle = 10800
 
+(* Pretty-printing function for delegates *)
 let pp_delegate = Format.pp_print_string
 
-
+(* Verifies and displays the distribution of block assignments against expected stakes *)
 let verify_distribution input output blocks =
+  (* Calculate total stake from the input *)
   let total_stake = List.fold_left (fun acc (_, s) -> acc + s) 0 input in
+
+  (* Count occurrences of each delegate in the output assignments *)
   let count_tbl = Hashtbl.create (List.length input) in
   Array.iter (fun d ->
     let c = Hashtbl.find_opt count_tbl d |> Option.value ~default:0 in
     Hashtbl.replace count_tbl d (c + 1)
   ) output;
+
+  (* Sort delegates alphabetically for consistent output *)
   let sorted = List.sort (fun (a, _) (b, _) -> compare a b) input in
   Format.printf "@[<v 2>Distribution:@,%10s %10s %10s %10s@," "Delegate" "Expected" "Actual" "Error";
+
+  (* Calculate and display expected vs actual block assignments and the error for each delegate *)
   List.iter (fun (d, s) ->
     let expected = float s *. float blocks /. float total_stake in
     let actual = Hashtbl.find_opt count_tbl d |> Option.value ~default:0 in
@@ -26,6 +44,7 @@ let verify_distribution input output blocks =
   ) sorted;
   Format.printf "@]@."
 
+  (* Example initial stake distribution for delegates *)
 let input_example = [
   ("A", 405104); ("B", 11780); ("C", 17839); ("D", 266224);  ("E", 405526); 
   ("F", 210556); ("G", 125431); ("H", 57887); ("I", 367611); ("J", 50197);
@@ -49,6 +68,8 @@ let input_example = [
   ("CR", 1761790); ("CS", 32707173); ("CT", 81898); ("CU", 408790); ("CV", 2260694);
 ]
 
+
+(* Delegate stake distribution examples across multiple cycles *)
 let input_cycle_1 = [
   ("A", 400000); ("B", 18000); ("C", 25000); ("D", 260000);
   ("E", 410000); ("F", 215000); ("G", 120000); ("H", 58000);

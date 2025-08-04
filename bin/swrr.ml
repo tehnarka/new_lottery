@@ -42,18 +42,24 @@ let run_with_state (input : input) (prev_credit_tbl : state) : output * state =
       Hashtbl.replace credit_tbl d (c + s)
     ) input;
 
-    (* 2. Select delegate with maximum accumulated credit *)
-    let best, _ = List.fold_left (fun (md, mc) (d, _) ->
-      let c = Hashtbl.find credit_tbl d in
-      if c > mc then (d, c) else (md, mc)
-    ) ("", min_int) input in
+    (* 2. Select delegate with maximum accumulated credit using Hashtbl.fold; updated due to Julien *)
+    let best, _ =
+      Hashtbl.fold
+        (fun delegate credit (max_delegate, max_credit) ->
+           if credit > max_credit then (delegate, credit)
+           else (max_delegate, max_credit))
+        credit_tbl
+        ("", min_int)
+    in
+
     (* 3. Assign selected delegate to current slot *)
     arr.(t) <- best;
 
-    (* 4. Deduct total stake from winner's credit (so others catch up over time) *)
+    (* 4. Deduct total stake from winner's credit *)
     let c = Hashtbl.find credit_tbl best in
     Hashtbl.replace credit_tbl best (c - total_stake)
   done;
 
   arr, credit_tbl
+
 

@@ -1,8 +1,8 @@
 open Common
-
+(* Dispatches execution based on the selected allocation method *)
 let run_method method_id input n_cycles =
   match method_id with
-  | 1 ->  (* Alias *)
+  | 1 ->  (* Alias method *)
     for cycle = 1 to n_cycles do
       Format.printf "@.Cycle #%d (Alias method)@." cycle;
       let output = Alias.run input in
@@ -20,7 +20,7 @@ let run_method method_id input n_cycles =
       let output = Minvalloc.run input in
       verify_distribution input output blocks_per_cycle
     done
-  | 4 ->  (* SWRR with memory *)
+  | 4 ->  (* SWRR with memory: Stateful Smooth Weighted Round Robin *)
     let inputs = [input_cycle_1; input_cycle_2; input_cycle_3] in
     let state = ref (Swrr.init_state input) in
     List.iteri (fun i input ->
@@ -29,12 +29,13 @@ let run_method method_id input n_cycles =
       state := new_state;
       verify_distribution input output blocks_per_cycle
     ) inputs
-  | 5 ->  (* SSSA after MinVAlloc *)
+  | 5 ->  (* SSSA: Sorted Stride-based Slot Allocation after MinVAlloc *)
     for cycle = 1 to n_cycles do
       Format.printf "@.Cycle #%d (SSSA after MinVAlloc)@." cycle;
-      let raw = Minvalloc.run input in
-      let output = Shift.run raw in
+      let raw = Minvalloc.run input in (* Initial allocation *)
+      let output = Shift.run raw in (* Slot distribution refinement *)
       verify_distribution input output blocks_per_cycle;
+      (* Log each block allocation clearly *)
       Array.iteri (fun i d ->
         Format.printf "Block %04d: %s@." i d
       ) output
@@ -42,12 +43,15 @@ let run_method method_id input n_cycles =
   | 6 ->  (* SWRR via stream (lazy generation) *)
     for cycle = 1 to n_cycles do
       Format.printf "@.Cycle #%d (SWRR via stream)@." cycle;
+      (* Initialize temporary state *)
       let state = Swrr_map.init_state input in
+      (* Generate block allocation lazily using Seq *)
       let output = Swrr_map.stream input state
                    |> Seq.take blocks_per_cycle
                    |> Array.of_seq
       in
       verify_distribution input output blocks_per_cycle;
+      (* Uncomment for detailed debugging output: *)
       (* Array.iteri (fun i d ->
         Format.printf "Block %04d: %s@." i d
       ) output *)
@@ -55,14 +59,15 @@ let run_method method_id input n_cycles =
 
   | _ -> failwith "Invalid method id"
 
+(* Entry point: handles user input and initiates allocation *)
 let () =
   Format.printf "Choose allocation method:@.";
   Format.printf "1 - Alias method@.";
-  Format.printf "2 - LowVAlloc@.";
-  Format.printf "3 - MinVAlloc@.";
+  Format.printf "2 - LowVAlloc - no memory@.";
+  Format.printf "3 - MinVAlloc - no memory@.";
   Format.printf "4 - Smooth Weighted Round Robin (SWRR with memory - DATA ONLY FOR 3 CYCLES AVAILABLE). @.";
   Format.printf "5 - SSSA after MinVAlloc@.";
-  Format.printf "6 - SWRR using map@.";
+  Format.printf "6 - SWRR using map (no memory yet)@.";
   Format.printf "> %!";
   try
     let method_id = read_int () in
