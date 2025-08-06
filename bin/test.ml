@@ -40,22 +40,38 @@ let run_method method_id input n_cycles =
         Format.printf "Block %04d: %s@." i d
       ) output
     done
-  | 6 ->  (* SWRR via stream (lazy generation) *)
-    for cycle = 1 to n_cycles do
-      Format.printf "@.Cycle #%d (SWRR via stream)@." cycle;
-      (* Initialize temporary state *)
-      let state = Swrr_map.init_state input in
-      (* Generate block allocation lazily using Seq *)
-      let output = Swrr_map.stream input state
+  | 6 ->  (* SWRR via stream (lazy generation, memory-aware) *)
+    let inputs = [input_cycle_1; input_cycle_2; input_cycle_3] in
+    let state = ref Swrr_map.DelegateMap.empty in
+    List.iteri (fun cycle input ->
+      Format.printf "@.Cycle #%d (SWRR via stream with memory)@." (cycle + 1);
+      (* Updating the status for the new one input *)
+      state := Swrr_map.update_state input !state;
+
+      (* Generate a sequence with the current input and updated state *)
+      let output = Swrr_map.stream input !state
                    |> Seq.take blocks_per_cycle
                    |> Array.of_seq
       in
+
+      (* Update the state after N stream steps *)
+      let _, final_state =
+        Array.fold_left
+          (fun (s, acc_state) _ ->
+             let _, new_state = Swrr_map.iteration input acc_state in
+             (s, new_state)
+          )
+          ((), !state)
+          output
+      in
+      state := final_state;
+
       verify_distribution input output blocks_per_cycle;
-      (* Uncomment for detailed debugging output: *)
-      (* Array.iteri (fun i d ->
-        Format.printf "Block %04d: %s@." i d
-      ) output *)
-    done
+
+      (* Optional debug print *)
+      (* Array.iteri (fun i d -> Format.printf "Block %04d: %s@." i d) output *)
+    ) inputs
+
 
   | _ -> failwith "Invalid method id"
 
@@ -67,7 +83,7 @@ let () =
   Format.printf "3 - MinVAlloc - no memory@.";
   Format.printf "4 - Smooth Weighted Round Robin (SWRR with memory - DATA ONLY FOR 3 CYCLES AVAILABLE). @.";
   Format.printf "5 - SSSA after MinVAlloc@.";
-  Format.printf "6 - SWRR using map (no memory yet)@.";
+  Format.printf "6 - SWRR using map (3 cycles memory)@.";
   Format.printf "> %!";
   try
     let method_id = read_int () in

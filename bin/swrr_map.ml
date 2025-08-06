@@ -12,17 +12,23 @@
 open Common
 
 module DelegateMap = Map.Make(String) (* keys type string *)
-type state = int DelegateMap.t
+type state = int DelegateMap.t        (* type of credit is int *)
 
-(** [init_state input] initializes the internal SWRR credit state for a given input list of (delegate * stake).
-    Each delegate starts with 0 credits. 
+
+(** [update_state input] 
 *)
-let init_state (input : input) : state =
-  List.fold_left
-    (fun acc (d, _) -> DelegateMap.add d 0 acc)
-    DelegateMap.empty
-    input
 
+let update_state (input : input) (old_state : state) : state = 
+  List.fold_left
+    (fun acc (d, _) ->
+      DelegateMap.update d
+        (function
+          | None -> Some 0
+          | Some c -> Some c
+        ) acc
+    )
+    old_state
+    input
 
 (** [iteration input state] performs a single SWRR step:
     - Increases each delegate's credit by its stake
@@ -35,14 +41,17 @@ let iteration (input : input) (state : state) : delegate * state =
   let updated_state = 
     List.fold_left
     (fun acc (d, s) -> 
-    let c = DelegateMap.find d acc in
-    DelegateMap.add d (c + s) acc 
+      DelegateMap.update d
+        (function
+          | None -> Some s         
+          | Some c -> Some (c + s) 
+        ) acc
     )
     state 
     input 
   in
   
-  let best_delegate =
+  let winner, winner_credit =
     DelegateMap.fold
       (fun d credit (best_d, best_c) ->
         if credit > best_c then (d, credit) else (best_d, best_c)
@@ -50,8 +59,6 @@ let iteration (input : input) (state : state) : delegate * state =
       updated_state
       ("", min_int)
   in
-let winner = fst best_delegate in
-let winner_credit = DelegateMap.find winner updated_state in
 let final_state = DelegateMap.add winner (winner_credit - total_stake) updated_state in
 (winner, final_state)
 
