@@ -1,6 +1,6 @@
 open Common
 
-(** SWRR (Stochastic Weighted Round Robin) implementation using imperative Hashtbl.
+(** SWRR (Smooth Weighted Round Robin) implementation using imperative Hashtbl.
     Each delegate accumulates "credit" proportional to its stake.
     In each slot, the delegate with the highest credit is selected and debited. *)
 
