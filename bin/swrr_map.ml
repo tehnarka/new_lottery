@@ -1,5 +1,5 @@
 (** 
-  Stochastic Weighted Round Robin (SWRR) implementation using OCaml's standard Map module.
+  Smooth Weighted Round Robin (SWRR) implementation using OCaml's standard Map module.
 
   Each delegate is associated with an integer credit value stored in an immutable Map (string → int),
   and selection proceeds by increasing credits proportionally to stake and choosing the highest.
