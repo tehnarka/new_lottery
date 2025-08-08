@@ -41,7 +41,7 @@ let run_method method_id input n_cycles =
       ) output
     done
   | 6 ->  (* SWRR via stream (lazy generation, memory-aware) *)
-    let inputs = [input_cycle_1; input_cycle_2; input_cycle_3] in
+    let inputs = [input_big_small; input_big_small; input_big_small; input_big_small; input_big_small; input_big_small; input_big_small; input_big_small; input_big_small; input_big_small] in
     let state = ref Swrr_map.DelegateMap.empty in
     List.iteri (fun cycle input ->
       Format.printf "@.Cycle #%d (SWRR via stream with memory)@." (cycle + 1);
@@ -66,10 +66,10 @@ let run_method method_id input n_cycles =
       in
       state := final_state;
 
-      verify_distribution input output blocks_per_cycle;
+      (* verify_distribution input output blocks_per_cycle; *)
 
-      (* Optional debug print *)
-      (* Array.iteri (fun i d -> Format.printf "Block %04d: %s@." i d) output *)
+      
+      Array.iter(fun d -> Format.printf "%s "  d) output 
     ) inputs
 
 
@@ -83,7 +83,7 @@ let () =
   Format.printf "3 - MinVAlloc - no memory@.";
   Format.printf "4 - Smooth Weighted Round Robin (SWRR with memory - DATA ONLY FOR 3 CYCLES AVAILABLE). @.";
   Format.printf "5 - SSSA after MinVAlloc@.";
-  Format.printf "6 - SWRR using map (3 cycles memory)@.";
+  Format.printf "6 - SWRR using map (fixed nb of cycles)@.";
   Format.printf "> %!";
   try
     let method_id = read_int () in

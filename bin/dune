@@ -1,5 +1,5 @@
 (executable
  (name test)
  (public_name new_lottery.test)
- (modules test alias lowvalloc minvalloc swrr swrr_map shift)
+ (modules test alias lowvalloc minvalloc swrr swrr_map swrr_lazy shift)
  (libraries new_lottery.common))
