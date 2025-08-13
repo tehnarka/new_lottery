@@ -77,7 +77,7 @@ open Common
 
 module DelegateMap = Map.Make(String)
 
-(* structure for state for one delegqte*)
+(* structure for state for one delegate*)
 type delegate_state = {
   stake : int;
   credit : int;
@@ -89,32 +89,9 @@ type state = {
   step : int
 }
 
-(** [update_state input state] applies a new set of stakes for the next cycle.
-    - Keeps [credit] unchanged.
-    - Sets [stake] from [input].
-    - Resets [last_updated := 0] for all delegates.
-    - Adds new delegates with [credit = 0].
-    - Removes delegates not present in the new [input].
-    - Resets [step] to 0 to start the new cycle cleanly.
-    This function must be called after [finalize_cycle]. *)
-let update_state (input : input) (state : state) : state =
-  let new_delegates =
-    List.fold_left
-      (fun acc (d, new_stake) ->
-        DelegateMap.update d
-          (function
-            | Some old -> Some { old with stake = new_stake; last_updated = 0 }
-            | None -> Some { stake = new_stake; credit = 0; last_updated = 0 }
-          )
-          acc
-      )
-      DelegateMap.empty
-      input
-  in
-  { delegates = new_delegates; step = 0 }
 
 
-  (** [finalize_cycle state] materializes all virtual credit by
+(** [finalize_cycle state] materializes all virtual credit by
     computing the accumulated credit from [stake × (step − last_updated)]
     for each delegate. It then sets [last_updated := step] to freeze this state.
     This must be called at the end of every cycle, before [update_state]. *)
@@ -123,6 +100,7 @@ let finalize_cycle (state : state) : state =
     DelegateMap.map
       (fun { stake; credit; last_updated } ->
         let steps_passed = state.step - last_updated in
+          let steps_passed = if steps_passed < 0 then 0 else steps_passed in 
         {
           stake;
           credit = credit + stake * steps_passed;
@@ -133,6 +111,32 @@ let finalize_cycle (state : state) : state =
   in
   { state with delegates = updated_delegates }
 
+
+  (** [update_state input state] applies a new set of stakes for the next cycle.
+    - Keeps [credit] unchanged.
+    - Sets [stake] from [input].
+    - Resets [last_updated := 0] for all delegates.
+    - Adds new delegates with [credit = 0].
+    - Removes delegates and their credits not present in the new [input].
+    - Resets [step] to 0 to start the new cycle cleanly.
+    This function must be called after [finalize_cycle]. *)
+let update_state (input : input) (state : state) : state =
+  let prev = state.delegates in 
+  let new_delegates =
+    List.fold_left
+      (fun acc (d, new_stake) ->
+        let credit =
+          match DelegateMap.find_opt d prev with
+          | Some { credit ; _ } -> credit
+          | None -> 0 
+        in 
+        DelegateMap.update d 
+          (fun _ -> Some { stake = new_stake; credit; last_updated = 0})
+        acc
+      )
+      DelegateMap.empty input
+  in
+  { delegates = new_delegates; step = 0 }
 
   (** [iteration input state] performs a single Lazy SWRR step:
     - Computes [effective_credit = credit + stake × (step − last_updated)] for each delegate;
@@ -152,7 +156,7 @@ let iteration (input : input) (state : state) : delegate * state =
         if effective > best_score then (d, effective) else (best_d, best_score)
       )
       state.delegates
-      ("", min_int)
+      ("", min_int) (* Initial worst score to guarantee first candidate wins *)
   in
 
   (* Update only the winner *)
