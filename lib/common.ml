@@ -1,175 +1,181 @@
-(* Delegate identifier represented as a string *)
+[@@@ocaml.warning "-32-34"]
+
 type delegate = string
-
-(* Pair consisting of a delegate and their stake (integer) *)
 type delegate_stake = delegate * int
-
-(* Input list containing stakes of all delegates *)
 type input = delegate_stake list
-
-(* Output array representing the delegate assignments for each block *)
 type output = delegate array
 
-(* Assignment mapping from delegates to the list of their assigned block indices *)
-type assignement = (delegate * int list) list
+let blocks_per_cycle : int = 10800
 
-(* Constant representing the number of blocks within one cycle *)
-let blocks_per_cycle = 10800
+module StrMap = Map.Make (String)
 
-(* Pretty-printing function for delegates *)
-let pp_delegate = Format.pp_print_string
+module type NUMBER = sig
+  type t
+  val zero : t
+  val succ : t -> t
+  val add : t -> t -> t
+  val mul : t -> t -> t
+  val compare : t -> t -> int
+  val to_float : t -> float
+end
 
-(* Verifies and displays the distribution of block assignments against expected stakes *)
-let verify_distribution input output blocks =
-  (* Calculate total stake from the input *)
+module IntN : NUMBER with type t = int = struct
+  type t = int
+  let zero = 0
+  let succ x = x + 1
+  let add (a:int) (b:int) = a + b
+  let mul (a:int) (b:int) = a * b
+  let compare = Stdlib.compare
+  let to_float = float_of_int
+end
+
+module Int64N : NUMBER with type t = int64 = struct
+  type t = int64
+  let zero = 0L
+  let succ x = Int64.succ x
+  let add = Int64.add
+  let mul = Int64.mul
+  let compare = Int64.compare
+  let to_float = Int64.to_float
+end
+
+let clamp_nonneg (x:int) : int =
+  match Stdlib.compare x 0 with
+  | -1 -> 0
+  | _  -> x
+
+let rec mod_pos a n =
+  match Stdlib.compare a 0 with
+  | -1 -> mod_pos (a + n) n
+  | 0  -> 0
+  | _  ->
+    match Stdlib.compare a n with
+    | -1 -> a
+    | 0  -> 0
+    | _  -> mod_pos (a - n) n
+
+let rotate_right (arr:output) (k:int) : output =
+  let n = Array.length arr in
+  match n = 0 with
+  | true  -> [||]
+  | false ->
+    let s = mod_pos k n in
+    let first = Array.unsafe_get arr 0 in
+    let b = Array.make n first in
+    let rec fill i =
+      match i = n with
+      | true  -> b
+      | false ->
+        let src = mod_pos (i - s) n in
+        Array.unsafe_set b i (Array.unsafe_get arr src);
+        fill (i + 1)
+    in
+    fill 0
+
+let rotate_left (arr:output) (k:int) : output =
+  let n = Array.length arr in
+  rotate_right arr (n - (mod_pos k n))
+
+let take_array (arr:output) (m:int) : output =
+  let n = Array.length arr in
+  match n = 0 with
+  | true  -> [||]
+  | false ->
+    let m0  = clamp_nonneg m in
+    let len = match Stdlib.compare m0 n with -1 -> m0 | 0 -> m0 | _ -> n in
+    let first = Array.unsafe_get arr 0 in
+    let b = Array.make len first in
+    let rec loop i =
+      match i = len with
+      | true  -> b
+      | false -> Array.unsafe_set b i (Array.unsafe_get arr i); loop (i + 1)
+    in
+    loop 0
+
+(* build 10×(levels) matrices *)
+let rounds_matrix_right (base:output) (rounds:int) (step:int) : output array =
+  let rec build r acc =
+    match r = rounds with
+    | true  -> Array.of_list (List.rev acc)
+    | false ->
+      let arr = rotate_right base (r * step) in
+      build (r + 1) (arr :: acc)
+  in
+  build 0 []
+
+let rounds_matrix_left (base:output) (rounds:int) (step:int) : output array =
+  let rec build r acc =
+    match r = rounds with
+    | true  -> Array.of_list (List.rev acc)
+    | false ->
+      let arr = rotate_left base (r * step) in
+      build (r + 1) (arr :: acc)
+  in
+  build 0 []
+
+(* print: rows = rounds, cols = levels (window over columns) *)
+let print_rounds_rows_levels_cols_window (name:string) (m:output array) (start:int) (count:int) =
+  let rounds = Array.length m in
+  let cols   = if rounds = 0 then 0 else Array.length m.(0) in
+  let s      = if start < 0 then 0 else start in
+  let c      = if count < 0 then 0 else count in
+  let last   = let u = s + c in if u <= cols then u else cols in
+  let cellw  = 2 in
+  Printf.printf "%s (rounds=%d, levels [%d..%d)):\n" name rounds s last;
+  let rec loop_r r =
+    match r = rounds with
+    | true  -> ()
+    | false ->
+      let row = m.(r) in
+      let rec loop_c j =
+        match j = last with
+        | true  -> Printf.printf "\n"
+        | false ->
+          Printf.printf "%-*s " cellw row.(j);
+          loop_c (j+1)
+      in
+      loop_c s; loop_r (r+1)
+  in
+  loop_r 0
+
+
+  (* ===== Verification for a single output (round 0) ===== *)
+
+let strmap_inc (k:string) (v:int) (m:int StrMap.t) : int StrMap.t =
+  let old = StrMap.find_opt k m |> Option.value ~default:0 in
+  StrMap.add k (old + v) m
+
+let counts_of_output (out:output) : int StrMap.t =
+  let n = Array.length out in
+  match n = 0 with
+  | true  -> StrMap.empty
+  | false ->
+    let rec loop i acc =
+      match i = n with
+      | true  -> acc
+      | false ->
+        let d = Array.unsafe_get out i in
+        loop (i + 1) (strmap_inc d 1 acc)
+    in
+    loop 0 StrMap.empty
+
+let verify_distribution (input:input) (out:output) (blocks:int) : unit =
   let total_stake = List.fold_left (fun acc (_, s) -> acc + s) 0 input in
-
-  (* Count occurrences of each delegate in the output assignments *)
-  let count_tbl = Hashtbl.create (List.length input) in
-  Array.iter (fun d ->
-    let c = Hashtbl.find_opt count_tbl d |> Option.value ~default:0 in
-    Hashtbl.replace count_tbl d (c + 1)
-  ) output;
-
-  (* Sort delegates alphabetically for consistent output *)
-  let sorted = List.sort (fun (a, _) (b, _) -> compare a b) input in
-  Format.printf "@[<v 2>Distribution:@,%10s %10s %10s %10s@," "Delegate" "Expected" "Actual" "Error";
-
-  (* Calculate and display expected vs actual block assignments and the error for each delegate *)
-  List.iter (fun (d, s) ->
-    let expected = float s *. float blocks /. float total_stake in
-    let actual = Hashtbl.find_opt count_tbl d |> Option.value ~default:0 in
-    let error = float actual -. expected in
-    Format.printf "%10s %10.2f %10d %+10.2f@," d expected actual error
-  ) sorted;
-  Format.printf "@]@."
-
-  (* Example initial stake distribution for delegates *)
-let input_example = [
-  ("A", 405104); ("B", 11780); ("C", 17839); ("D", 266224);  ("E", 405526); 
-  ("F", 210556); ("G", 125431); ("H", 57887); ("I", 367611); ("J", 50197);
-  ("K", 95404); ("L", 33182); ("M", 1577474); ("N", 340158); ("O", 53601);
-  ("P", 93952); ("Q", 11423); ("R", 284139); ("S", 169104); ("T", 70642);
-  ("U", 392941); ("V", 36202); ("W", 2050839); ("X", 1946154); ("Y", 486086);
-  ("Z", 2528851); ("AA", 131949); ("AB", 4997937); ("AC", 81058); ("AD", 15648882);
-  ("AE", 81982); ("AF", 87698); ("AG", 57577); ("AH", 408462); ("AI", 795986);
-  ("AJ", 436610); ("AK", 659822); ("AL", 54752461); ("AM", 10235); ("AN", 293025);
-  ("AO", 23615); ("AP", 2626463); ("AQ", 1244436); ("AR", 669273); ("AS", 5122226);
-  ("AT", 32881); ("AU", 106049); ("AV", 1628729); ("AW", 21634); ("AX", 1510898);
-  ("AY", 668011); ("AZ", 1067247); ("BA", 2585245); ("BB", 396958); ("BC", 6190);
-  ("BD", 199373); ("BE", 6714238); ("BF", 185329); ("BG", 248124); ("BH", 5929984);
-  ("BI", 379414); ("BJ", 1513374); ("BK", 194877); ("BL", 22378588); ("BM", 7064083);
-  ("BN", 1562343); ("BO", 756535); ("BP", 14441); ("BQ", 27315); ("BR", 356170);
-  ("BS", 80431); ("BT", 287033); ("BU", 8305935); ("BV", 850836); ("BW", 105068122);
-  ("BX", 7191); ("BY", 922965); ("BZ", 346062); ("CA", 1831482); ("CB", 109728);
-  ("CC", 84495); ("CD", 1320201); ("CE", 10122111); ("CF", 279409); ("CG", 65217);
-  ("CH", 131639); ("CI", 51618); ("CJ", 147640); ("CK", 67123); ("CL", 23118);
-  ("CM", 989839); ("CN", 610568); ("CO", 66367); ("CP", 904405); ("CQ", 2449692);
-  ("CR", 1761790); ("CS", 32707173); ("CT", 81898); ("CU", 408790); ("CV", 2260694);
-]
-
-let input_big_small = [
-  ("A", 42915944); ("B", 37992471); ("C", 26795436); ("D", 19084374); ("E", 19076715); 
-  ("F", 14639410); ("R", 14697606); ("G", 10126260); ("H", 9544109); ("I", 9421491);
-  ("AUZ", 41676); ("AVA", 41383); ("AVB", 39685); ("AVC", 39144); ("AVD", 39102);
-  ("AVE", 38784); ("AVF", 38067); ("AVG", 37603); ("AVH", 37215); ("AVI", 36834);
-  ("AVJ", 36239); ("AVK", 36020); ("AVL", 35737); ("AVM", 32541); ("AVN", 32270);
-  ("AVO", 30880); ("AVP", 30019); ("AVQ", 29738); ("AVR", 29529); ("AVS", 29177);
-  ("AVT", 28609); ("AVU", 28360); ("AVV", 27725); ("AVW", 26966); ("AVX", 26200);
-  ("AVY", 24003); ("AVZ", 23723); ("AWA", 23341); ("AWB", 22545); ("AWC", 22412);
-  ("AWD", 22352); ("AWE", 22297); ("AWF", 21850); ("AWG", 21844); ("AWH", 21461);
-  ("BAA", 28786); ("BAB", 28735); ("BAC", 28625); ("BAD", 28265); ("BAE", 28008);
-  ("BAF", 27676); ("BAG", 27531); ("BAH", 26720); ("BAI", 26498); ("BAJ", 26390);
-  ("BAK", 26128); ("BAL", 25866); ("BAM", 25581); ("BAN", 25092); ("SAI", 23084);
-
-]
-(* Delegate stake distribution examples across multiple cycles *)
-let input_cycle_1 = [
-  ("A", 400000); ("B", 18000); ("C", 25000); ("D", 260000);
-  ("E", 410000); ("F", 215000); ("G", 120000); ("H", 58000);
-  ("I", 370000); ("J", 52000); ("K", 95000); ("L", 33000);
-  ("M", 1600000); ("N", 350000); ("O", 53000); ("P", 94000);
-  ("Q", 11000); ("R", 290000); ("S", 170000); ("T", 70000);
-  ("U", 390000); ("V", 36000); ("W", 2060000); ("X", 1950000);
-  ("Y", 480000); ("Z", 2500000); ("AB", 5000000); ("AD", 1560000);
-  ("AL", 5475200); ("AM", 10000);
-]
-
-let input_cycle_2 = [
-  ("A", 410000); ("C", 26000); ("D", 255000); ("E", 415000);
-  ("F", 210000); ("G", 125000); ("I", 375000); ("J", 53000);
-  ("K", 96000); ("L", 34000); ("M", 1610000); ("N", 345000);
-  ("O", 52000); ("P", 95000); ("R", 292000); ("S", 171000);
-  ("U", 395000); ("V", 37000); ("W", 2065000); ("X", 1945000);
-  ("Y", 475000); ("Z", 2510000); ("AB", 5010000); ("AD", 1561000);
-  ("AL", 5475300); ("BA", 123456);  (* new *)
-  ("NEW2_BB", 987654);  (* new *)
-  ("NEW2_AC", 80000);   (* new *)
-  ("NEW2_AE", 82000);   (* new *)
-]
-
-let input_cycle_3 = [
-  ("A", 405000); ("B", 17500); ("C", 25500); ("D", 258000);
-  ("E", 408000); ("F", 212000); ("G", 123000); ("I", 372000);
-  ("J", 54000); ("K", 97000); ("M", 1620000); ("N", 348000);
-  ("O", 52800); ("P", 94800); ("R", 291000); ("S", 169000);
-  ("T", 70500); ("U", 392000); ("V", 36500); ("W", 2062000);
-  ("X", 1948000); ("Y", 478000); ("Z", 2508000); ("AB", 5008000);
-  ("AD", 1562000); ("AL", 5475400);
-  ("NEW2_BB", 990000);   (* from cycle 2 *)
-  ("NEW2_AE", 83000);    (* from cycle 2 *)
-  ("NEW3_BC", 456789);   (* new *)
-  ("NEW3_BD", 321987);   (* new *)
-]
-
-let input_mainnet = [
-  ("A", 42915944); ("B", 37992471); ("C", 26795436); ("D", 19084374);  ("E", 19076715); 
-  ("F",14639410); ("G", 10126260); ("H", 9544109); ("I", 9421491); ("J", 8258620);
-  ("K", 7675806); ("L", 7669096); ("M", 7622077); ("N", 7539142); ("O", 7515360);
-  ("P", 7513756); ("Q", 7492814); ("R", 14697606); ("S", 7137794); ("T", 7079520);
-  ("U", 7000481); ("V", 6728149); ("W", 6629364); ("X", 5245738); ("Y", 5013384);
-  ("Z", 4896277); ("AA", 4638833); ("AB", 4185660); ("AC", 3988343); ("AD", 3986472);
-  ("AE", 3803348); ("AF", 3666448); ("AG", 3630119); ("AH", 3418743); ("AI", 2932404);
-  ("AJ", 2674146); ("AK", 2233799); ("AL", 2118906); ("AM", 2093685); ("AN", 2069916);
-  ("AO", 1904802); ("AP", 1719543); ("AQ", 1589255); ("AR", 1482661); ("AS", 1423296);
-  ("AT", 1399029); ("AU", 1276407); ("AV", 1213912); ("AW", 1207480); ("AX", 1196977);
-("AY", 1063356); ("AZ", 996181); ("BA", 934785); ("BB", 930572); ("BC", 899827);
-("BD", 834643); ("BE", 790864); ("BF", 781227); ("BG", 755639); ("BH", 739781);
-("BI", 721202); ("BJ", 717333); ("BK", 704066); ("BL", 679476); ("BM", 565863);
-("BN", 557524); ("BO", 547648); ("BP", 535033); ("BQ", 531458); ("BR", 474273);
-("BS", 473289); ("BT", 465781); ("BU", 456538); ("BV", 439710); ("BW", 435156);
-("BX", 433861); ("BY", 432131); ("BZ", 411613); ("CA", 409280); ("CB", 400081);
-("CC", 399897); ("CD", 393970); ("CE", 393136); ("CF", 368738); ("CG", 359945);
-("CM", 358170); ("CN", 346699); ("CO", 334709); ("CP", 332621); ("CQ", 328416);
-("CR", 314662); ("CS", 295262); ("CT", 293535); ("CU", 291686); ("CV", 282886);
-("AAA", 280201); ("AAB", 278891); ("AAC", 278669); ("AAD", 272655); ("AAE", 266322);
-("AAF", 255633); ("AAG", 255199); ("AAH", 242000); ("AAI", 237896); ("AAJ", 228722);
-("AAK", 205218); ("AAL", 202493); ("AAM", 182481); ("AAN", 182317); ("AAO", 181106);
-("AAP", 175769); ("AAQ", 174528); ("AAR", 167596); ("AAS", 166767); ("AAT", 166416);
-("AAU", 164434); ("AAV", 161219); ("AAW", 157062); ("AAX", 156878); ("AAY", 148189);
-("AAZ", 144851); ("ABA", 142835); ("ABB", 138681); ("ABC", 125019); ("ABD", 123099);
-("ABE", 121011); ("ABF", 116459); ("ABG", 115697); ("ABH", 106409); ("ABI", 103043);
-("ABJ", 102275); ("ABK", 100954); ("ABL", 100924); ("ABM", 100593); ("ABN", 99824);
-("AUA", 87573); ("AUB", 87279); ("AUC", 81246); ("AUD", 79930); ("AUE", 73266);
-("AUF", 71231); ("AUG", 71120); ("AUH", 64636); ("AUI", 63800); ("AUJ", 62392);
-("AUK", 59440); ("AUL", 56666); ("AUM", 56570); ("AUN", 54706); ("AUO", 54674);
-("AUP", 54137); ("AUQ", 52943); ("AUR", 51752); ("AUS", 51668); ("AUT", 48594);
-("AUU", 46986); ("AUV", 45947); ("AUW", 44450); ("AUX", 43205); ("AUY", 42488);
-("AUZ", 41676); ("AVA", 41383); ("AVB", 39685); ("AVC", 39144); ("AVD", 39102);
-("AVE", 38784); ("AVF", 38067); ("AVG", 37603); ("AVH", 37215); ("AVI", 36834);
-("AVJ", 36239); ("AVK", 36020); ("AVL", 35737); ("AVM", 32541); ("AVN", 32270);
-("AVO", 30880); ("AVP", 30019); ("AVQ", 29738); ("AVR", 29529); ("AVS", 29177);
-("AVT", 28609); ("AVU", 28360); ("AVV", 27725); ("AVW", 26966); ("AVX", 26200);
-("AVY", 24003); ("AVZ", 23723); ("AWA", 23341); ("AWB", 22545); ("AWC", 22412);
-("AWD", 22352); ("AWE", 22297); ("AWF", 21850); ("AWG", 21844); ("AWH", 21461);
-("BAA", 28786); ("BAB", 28735); ("BAC", 28625); ("BAD", 28265); ("BAE", 28008);
-("BAF", 27676); ("BAG", 27531); ("BAH", 26720); ("BAI", 26498); ("BAJ", 26390);
-("BAK", 26128); ("BAL", 25866); ("BAM", 25581); ("BAN", 25092); ("BAO", 24979);
-("BAP", 24929); ("BAQ", 24878); ("BAR", 24866); ("BAS", 24710); ("BAT", 24689);
-("SAA", 24386); ("SAB", 24210); ("SAC", 24011); ("SAD", 23985); ("SAE", 23879);
-("SAF", 23716); ("SAG", 23477); ("SAH", 23259); ("SAI", 23084); ("SAJ", 22991);
-("SAK", 22833); ("SAL", 22702); ("SAM", 22540); ("SAN", 22499); ("SAO", 22306);
-("SAP", 22227); ("SAQ", 22079); ("SAR", 21867); ("SAS", 21648); ("SAT", 21431);
-
-
-]
+  let counts = counts_of_output out in
+  let sorted = List.sort (fun (a,_) (b,_) -> Stdlib.compare a b) input in
+  Format.printf "@[<v 2>Distribution:@,%10s %10s %10s %10s@,"
+    "Delegate" "Expected" "Actual" "Error";
+  let rec print = function
+    | [] -> Format.printf "@]@."
+    | (d, s)::tl ->
+      let expected =
+        match Stdlib.compare total_stake 0 with
+        | 0 -> 0.0
+        | _ -> (float_of_int s) *. (float_of_int blocks) /. (float_of_int total_stake)
+      in
+      let actual = StrMap.find_opt d counts |> Option.value ~default:0 in
+      let error = (float_of_int actual) -. expected in
+      Format.printf "%10s %10.2f %10d %+10.2f@," d expected actual error;
+      print tl
+  in
+  print sorted
