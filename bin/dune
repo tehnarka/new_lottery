@@ -1,5 +1,9 @@
 (executable
  (name test)
  (public_name new_lottery.test)
+<<<<<<< Updated upstream
  (modules test alias lowvalloc minvalloc swrr swrr_map swrr_lazy shift)
+=======
+ (modules test alias swrr swrr_map swrr_lazy lowvalloc minvalloc sssa )
+>>>>>>> Stashed changes
  (libraries new_lottery.common))
